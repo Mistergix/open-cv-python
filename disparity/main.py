@@ -2,18 +2,22 @@ import cv2
 import cv2 as cv
 import numpy as np
 
-maxCorners = 100
+maxCorners = 0
 
 def disparity():
     imgA = cv.imread(cv.samples.findFile("TP/disparity/image1.jpg"))
-    imgB = cv.imread(cv.samples.findFile("TP/disparity/image2.jpg"))
+    imgB = cv.imread(cv.samples.findFile("TP/disparity/image2_resized.jpg"))
     imgA = cv.cvtColor(imgA, cv.COLOR_BGR2GRAY)
     imgB = cv.cvtColor(imgB, cv.COLOR_BGR2GRAY)
     h, w = imgA.shape
     dim = (w, h)
     ia = imgA
-    ib = cv.resize(imgB, dim, interpolation=cv.INTER_AREA)
-    pa, pb = findMatchings(ia, ib)
+    ib = imgB
+    #ib = cv.resize(imgB, dim, interpolation=cv.INTER_AREA)
+    pa = []
+    pb = []
+    findMatchings(ia, ib, pa, pb)
+    findMatchings(ib, ia, pb, pa)
     displayMatchings(ia, ib, pa, pb)
     iar, ibr = rectify(ia, ib, pa, pb)
     res = cv.hconcat([iar, ibr])
@@ -24,28 +28,27 @@ def disparity():
     k = cv.waitKey(0)
 
 
-def findMatchings(ia, ib):
+def findMatchings(ia, ib, pa, pb):
     feature_params = dict(maxCorners=maxCorners,
-                          qualityLevel=0.01,
-                          minDistance=7,
+                          qualityLevel=0.05,
+                          minDistance=25,
                           blockSize=7)
     lk_params = dict(winSize=(21, 21),
-                     maxLevel=3,
+                     maxLevel=5,
                      criteria=(cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT, 30, 0.01))
     tmpA = cv.goodFeaturesToTrack(ia, mask=None, **feature_params)
     tmpB, st, err = cv.calcOpticalFlowPyrLK(ia, ib, tmpA, None, **lk_params)
-    pB = []
-    pA = []
+
     if tmpB is not None:
-        pB = tmpB[st == 1]
-        pA = tmpA[st == 1]
+        pB1 = tmpB[st > 0]
+        pA1 = tmpA[st > 0]
 
-    return pA, pB
-
+        pa.extend(pA1)
+        pb.extend(pB1)
 
 def displayMatchings(ia, ib, pa, pb):
 
-    colors = np.random.randint(0, 255, (maxCorners, 3))
+    colors = np.random.randint(0, 255, (max(maxCorners, 1000), 3))
 
     _,w = ia.shape
     res = cv2.hconcat([ia, ib])
@@ -64,13 +67,13 @@ def displayMatchings(ia, ib, pa, pb):
 def rectify(ia, ib, pa, pb):
     pts1 = np.int32(pa)
     pts2 = np.int32(pb)
-    F, mask = cv.findFundamentalMat(pts1, pts2, cv.FM_LMEDS)
+    F, mask = cv.findFundamentalMat(pts1, pts2, cv.FM_RANSAC)
     #pts1 = pts1[mask.ravel() == 1]
     #pts2 = pts2[mask.ravel() == 1]
     h,w = ia.shape
-    retval, H1, H2 = cv.stereoRectifyUncalibrated(pa, pb, F, (w,h))
-    iar = cv.warpPerspective(ia, H1, (h,w))
-    ibr = cv.warpPerspective(ib, H2, (h,w))
+    retval, H1, H2 = cv.stereoRectifyUncalibrated(pts1, pts2, F, (w,h))
+    iar = cv.warpPerspective(ia, H1, (w,h))
+    ibr = cv.warpPerspective(ib, H2, (w,h))
 
     return iar, ibr
 
